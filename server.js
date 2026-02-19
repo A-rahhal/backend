@@ -246,59 +246,71 @@ app.get("/childData/:id", verifyToken, async (req, res) => {
 });
 
 app.post("/addChild", verifyToken, async (req, res) => {
-  const accountId = req.user.id; // 🔥 من التوكن فقط
-  const childName = String(req.body.child_name || "").trim();
-  const age = String(req.body.age || "").trim();
-  const categories = req.body.categories || [];
-
-  if (!childName || !age) {
-    return res.status(400).json({ success: false, message: "Missing required fields" });
-  }
-
-  let parsedCategories = Array.isArray(categories)
-    ? categories.map(c => String(c).trim()).filter(Boolean)
-    : [];
-
-  let connection;
-
   try {
-    connection = await getConnection();
-    await beginTransaction(connection);
+    // 🔐 نأخذ accountId من التوكن فقط
+    const accountId = req.user.id;
 
-    const insertChildResult = await connectionQuery(
-      connection,
-      "INSERT INTO children (account_id, child_name, age) VALUES (?, ?, ?)",
-      [accountId, childName, age]
-    );
+    // 👶 بيانات الطفل
+    const childName = String(req.body.child_name || "").trim();
+    const age = String(req.body.age || "").trim();
 
-    const childId = insertChildResult.insertId;
+    // 📝 categories (مصفوفة) أو مصفوفة فارغة
+    const categories = Array.isArray(req.body.categories) ? req.body.categories : [];
 
-    if (parsedCategories.length > 0) {
-      const values = parsedCategories.map(category => [childId, category]);
-
-      await connectionQuery(
-        connection,
-        "INSERT INTO learning_categories (child_id, category) VALUES ?",
-        [values]
-      );
+    // ✅ تحقق من البيانات الأساسية
+    if (!childName || !age) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    await commit(connection);
+    // 🔹 تنظيف categories
+    const parsedCategories = categories
+      .map(c => String(c || "").trim())
+      .filter(Boolean);
 
-    return res.json({
-      success: true,
-      child_id: childId,
-      categories: parsedCategories
-    });
+    let connection;
+
+    try {
+      connection = await getConnection();
+      await beginTransaction(connection);
+
+      // 🔹 إضافة الطفل
+      const insertChildResult = await connectionQuery(
+        connection,
+        "INSERT INTO children (account_id, child_name, age) VALUES (?, ?, ?)",
+        [accountId, childName, age]
+      );
+
+      const childId = insertChildResult.insertId;
+
+      // 🔹 إضافة التصنيفات (إن وجدت)
+      if (parsedCategories.length > 0) {
+        const values = parsedCategories.map(category => [childId, category]);
+        await connectionQuery(
+          connection,
+          "INSERT INTO learning_categories (child_id, category) VALUES ?",
+          [values]
+        );
+      }
+
+      await commit(connection);
+
+      return res.json({
+        success: true,
+        child_id: childId,
+        categories: parsedCategories
+      });
+    } catch (err) {
+      if (connection) await rollback(connection);
+      console.error("Add child DB error:", err);
+      return res.status(500).json({ success: false, message: "Server error" });
+    } finally {
+      if (connection) connection.release();
+    }
   } catch (error) {
-    if (connection) await rollback(connection);
-
     console.error("Add child error:", error);
     return res.status(500).json({ success: false, message: "Server error" });
-  } finally {
-    if (connection) connection.release();
   }
-}); 
+});
 
 if (categories) {
       const parsed = typeof categories === "string" ? JSON.parse(categories) : categories;
