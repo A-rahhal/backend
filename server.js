@@ -313,97 +313,73 @@ app.post("/addChild", verifyToken, async (req, res) => {
 });
 
 
-app.put("/children/:id", verifyToken, upload.none(), async (req, res) => {
-  const childId = Number(req.params.id);
-  const accountId = Number(req.body.account_id);
-  const childName = String(req.body.child_name || "").trim();
-  const age = String(req.body.age || "").trim();
-  const categories = req.body.categories;
-
-  if (!Number.isInteger(childId) || !Number.isInteger(accountId) || !childName || !age) {
-    return res.status(400).json({ success: false, message: "Missing required fields" });
-  }
-
-  if (req.user.id !== accountId) {
-    return res.status(403).json({ success: false, message: "Forbidden" });
-  }
-
-  let parsedCategories = [];
-
+app.put("/children/:id", verifyToken, async (req, res) => {
   try {
-    if (categories) {
-      const parsed = typeof categories === "string" ? JSON.parse(categories) : categories;
+    const childId = Number(req.params.id);
+    const accountId = req.user.id; // من التوكن فقط
+    const childName = String(req.body.child_name || "").trim();
+    const age = String(req.body.age || "").trim();
+    const categories = Array.isArray(req.body.categories) ? req.body.categories : [];
 
-      if (Array.isArray(parsed)) {
-        parsedCategories = parsed;
-      } else if (parsed && Array.isArray(parsed.Items)) {
-        parsedCategories = parsed.Items;
+    if (!childName || !age || !Number.isInteger(childId)) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    const parsedCategories = categories.map(c => String(c).trim()).filter(Boolean);
+
+    let connection;
+
+    try {
+      connection = await getConnection();
+      await beginTransaction(connection);
+
+      const ownedRows = await connectionQuery(
+        connection,
+        "SELECT id FROM children WHERE id = ? AND account_id = ? LIMIT 1",
+        [childId, accountId]
+      );
+
+      if (ownedRows.length === 0) {
+        await rollback(connection);
+        return res.status(404).json({ success: false, message: "Child not found" });
       }
-    }
-
-    parsedCategories = parsedCategories
-      .map(category => String(category || "").trim())
-      .filter(Boolean);
-  } catch {
-    return res.status(400).json({ success: false, message: "Invalid categories JSON" });
-  }
-
-  let connection;
-
-  try {
-    connection = await getConnection();
-    await beginTransaction(connection);
-
-    const ownedRows = await connectionQuery(
-      connection,
-      "SELECT id FROM children WHERE id = ? AND account_id = ? LIMIT 1",
-      [childId, accountId]
-    );
-
-    if (ownedRows.length === 0) {
-      await rollback(connection);
-      return res.status(404).json({ success: false, message: "Child not found" });
-    }
-
-    await connectionQuery(
-      connection,
-      "UPDATE children SET child_name = ?, age = ? WHERE id = ? AND account_id = ?",
-      [childName, age, childId, accountId]
-    );
-
-    await connectionQuery(connection, "DELETE FROM learning_categories WHERE child_id = ?", [childId]);
-
-    if (parsedCategories.length > 0) {
-      const values = parsedCategories.map(category => [childId, category]);
 
       await connectionQuery(
         connection,
-        "INSERT INTO learning_categories (child_id, category) VALUES ?",
-        [values]
+        "UPDATE children SET child_name = ?, age = ? WHERE id = ? AND account_id = ?",
+        [childName, age, childId, accountId]
       );
+
+      await connectionQuery(connection, "DELETE FROM learning_categories WHERE child_id = ?", [childId]);
+
+      if (parsedCategories.length > 0) {
+        const values = parsedCategories.map(category => [childId, category]);
+        await connectionQuery(
+          connection,
+          "INSERT INTO learning_categories (child_id, category) VALUES ?",
+          [values]
+        );
+      }
+
+      await commit(connection);
+
+      return res.json({
+        success: true,
+        child_id: childId,
+        categories: parsedCategories
+      });
+    } catch (err) {
+      if (connection) await rollback(connection);
+      console.error("Update child DB error:", err);
+      return res.status(500).json({ success: false, message: "Server error" });
+    } finally {
+      if (connection) connection.release();
     }
-
-    await commit(connection);
-
-    return res.json({
-      success: true,
-      child_id: childId,
-      categories: parsedCategories
-    });
   } catch (error) {
-    if (connection) {
-      await rollback(connection);
-    }
-
-    console.error("Update child error:", error.message);
+    console.error("Update child error:", error);
     return res.status(500).json({ success: false, message: "Server error" });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
   }
 });
-
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
