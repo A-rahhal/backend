@@ -312,20 +312,6 @@ app.post("/addChild", verifyToken, async (req, res) => {
   }
 });
 
-if (categories) {
-      const parsed = typeof categories === "string" ? JSON.parse(categories) : categories;
-
-      if (Array.isArray(parsed)) {
-        parsedCategories = parsed;
-      } else if (parsed && Array.isArray(parsed.Items)) {
-        parsedCategories = parsed.Items;
-      }
-    }
-
-    parsedCategories = parsedCategories
-      .map(category => String(category || "").trim())
-      .filter(Boolean);
-
 
 app.put("/children/:id", verifyToken, upload.none(), async (req, res) => {
   const childId = Number(req.params.id);
