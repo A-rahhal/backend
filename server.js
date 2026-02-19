@@ -3,11 +3,9 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const db = require("./db");
-const multer = require("multer");
 require("dotenv").config();
 
 const app = express();
-const upload = multer();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES = process.env.JWT_EXPIRES || "7d";
@@ -247,39 +245,19 @@ app.get("/childData/:id", verifyToken, async (req, res) => {
   }
 });
 
-app.post("/addChild", verifyToken, upload.none(), async (req, res) => {
-  const accountId = Number(req.body.account_id);
+app.post("/addChild", verifyToken, async (req, res) => {
+  const accountId = req.user.id; // 🔥 من التوكن فقط
   const childName = String(req.body.child_name || "").trim();
   const age = String(req.body.age || "").trim();
-  const categories = req.body.categories;
+  const categories = req.body.categories || [];
 
-  if (!Number.isInteger(accountId) || !childName || !age) {
+  if (!childName || !age) {
     return res.status(400).json({ success: false, message: "Missing required fields" });
   }
 
-  if (req.user.id !== accountId) {
-    return res.status(403).json({ success: false, message: "Forbidden" });
-  }
-
-  let parsedCategories = [];
-
-  try {
-    if (categories) {
-      const parsed = typeof categories === "string" ? JSON.parse(categories) : categories;
-
-      if (Array.isArray(parsed)) {
-        parsedCategories = parsed;
-      } else if (parsed && Array.isArray(parsed.Items)) {
-        parsedCategories = parsed.Items;
-      }
-    }
-
-    parsedCategories = parsedCategories
-      .map(category => String(category || "").trim())
-      .filter(Boolean);
-  } catch {
-    return res.status(400).json({ success: false, message: "Invalid categories JSON" });
-  }
+  let parsedCategories = Array.isArray(categories)
+    ? categories.map(c => String(c).trim()).filter(Boolean)
+    : [];
 
   let connection;
 
@@ -313,18 +291,29 @@ app.post("/addChild", verifyToken, upload.none(), async (req, res) => {
       categories: parsedCategories
     });
   } catch (error) {
-    if (connection) {
-      await rollback(connection);
-    }
+    if (connection) await rollback(connection);
 
-    console.error("Add child error:", error.message);
+    console.error("Add child error:", error);
     return res.status(500).json({ success: false, message: "Server error" });
   } finally {
-    if (connection) {
-      connection.release();
-    }
+    if (connection) connection.release();
   }
-});
+}); 
+
+if (categories) {
+      const parsed = typeof categories === "string" ? JSON.parse(categories) : categories;
+
+      if (Array.isArray(parsed)) {
+        parsedCategories = parsed;
+      } else if (parsed && Array.isArray(parsed.Items)) {
+        parsedCategories = parsed.Items;
+      }
+    }
+
+    parsedCategories = parsedCategories
+      .map(category => String(category || "").trim())
+      .filter(Boolean);
+
 
 app.put("/children/:id", verifyToken, upload.none(), async (req, res) => {
   const childId = Number(req.params.id);
