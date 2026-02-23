@@ -125,7 +125,10 @@ app.post("/api/register", async (req, res) => {
       return res.status(400).json({ message: "Missing data" });
     }
 
-    const existingUsers = await query("SELECT id FROM users WHERE LOWER(email) = LOWER(?)", [email]);
+    const existingUsers = await query(
+      "SELECT id FROM users WHERE LOWER(email) = LOWER(?)",
+      [email]
+    );
 
     if (existingUsers.length > 0) {
       return res.status(400).json({ message: "User already exists" });
@@ -133,13 +136,29 @@ app.post("/api/register", async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await query("INSERT INTO users (username, email, password) VALUES (?, ?, ?)", [
-      username,
-      email,
-      hashedPassword
-    ]);
+    const result = await query(
+      "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
+      [username, email, hashedPassword]
+    );
 
-    return res.json({ message: "User registered successfully" });
+    const userId = result.insertId;
+
+    const token = jwt.sign(
+      { id: userId, email: email },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    return res.status(201).json({
+      message: "User registered successfully",
+      token: token,
+      user: {
+        id: userId,
+        username: username,
+        email: email
+      }
+    });
+
   } catch (error) {
     console.error("Register error:", error.message);
     return res.status(500).json({ message: "Server error" });
