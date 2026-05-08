@@ -8,7 +8,7 @@ require("dotenv").config();
 const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES = process.env.JWT_EXPIRES || "7d";
+const JWT_EXPIRES = process.env.JWT_EXPIRES || "30d";
 const PORT = Number(process.env.PORT || 3000);
 
 if (!JWT_SECRET) {
